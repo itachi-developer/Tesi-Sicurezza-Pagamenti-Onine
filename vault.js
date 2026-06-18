@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-
+ 
 // PCI-DSS: Simulazione di una chiave derivata sicura (PBKDF2/scrypt) o variabile d'ambiente.
 // In produzione verrebbe gestita tramite HSM (Hardware Security Module).
 const ENCRYPTION_KEY = process.env.MASTER_KEY 
