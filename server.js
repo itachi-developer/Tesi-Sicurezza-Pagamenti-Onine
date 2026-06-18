@@ -9,12 +9,20 @@ const PORT = 3000;
 // Middleware per permettere ad Express di leggere i dati in formato JSON
 app.use(express.json());
 
+// Middleware per la sicurezza lato client (PCI-DSS v4.0 Req 6.4.3)
+// Imposta una Content Security Policy base per bloccare script non autorizzati
+app.use((req, res, next) => {
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'");
+    next();
+});
+
 /**
  * ENDPOINT 1: Tokenizzazione
  * Il client invia il PAN, il server risponde con il Token.
  */
 app.post('/api/tokenize', (req, res) => {
-    const { pan } = req.body;
+    // AGGIUNTO || {} per evitare il crash se req.body è undefined
+    const { pan } = req.body || {};
 
     if (!pan) {
         return res.status(400).json({ error: "PAN mancante nella richiesta" });
@@ -36,10 +44,20 @@ app.post('/api/tokenize', (req, res) => {
 
 /**
  * ENDPOINT 2: De-tokenizzazione controllata
- * Usato (ad esempio dal gateway) per recuperare il PAN quando deve processare il pagamento verso la banca.
+ * Usato (ad esempio dal gateway) per recuperare il PAN.
+ * PROTETTO tramite API Key interna (PCI-DSS Least Privilege).
  */
 app.post('/api/detokenize', (req, res) => {
-    const { token } = req.body;
+    // Controllo degli accessi Server-to-Server
+    const internalApiKey = req.headers['x-internal-api-key'];
+    
+    if (!internalApiKey || internalApiKey !== 'poc-internal-secret-2026') {
+        console.warn(`[SECURITY] Tentativo di de-tokenizzazione non autorizzato!`);
+        return res.status(401).json({ error: "Accesso negato: API Key interna mancante o non valida" });
+    }
+
+    const { token } = req.body || {};
+
 
     if (!token) {
         return res.status(400).json({ error: "Token mancante nella richiesta" });
@@ -47,14 +65,13 @@ app.post('/api/detokenize', (req, res) => {
 
     try {
         const panOriginale = detokenize(token);
-        console.log(`[VAULT] De-tokenizzazione effettuata per il token: ${token}`);
+        console.log(`[VAULT] De-tokenizzazione autorizzata ed effettuata per il token: ${token}`);
         
         res.status(200).json({
             status: "success",
             pan: panOriginale
         });
     } catch (error) {
-        // Se il token non esiste, restituiamo un errore 404 (Not Found)
         res.status(404).json({ error: error.message });
     }
 });
@@ -64,7 +81,7 @@ app.post('/api/detokenize', (req, res) => {
  * Riceve il token e l'importo, decide se fare Challenge o Frictionless.
  */
 app.post('/api/process-payment', (req, res) => {
-    const { token, amount, currency } = req.body;
+    const { token, amount, currency } = req.body || {};
 
     if (!token || !amount) {
         return res.status(400).json({ error: "Dati incompleti" });
