@@ -1,13 +1,12 @@
-// vault.js
 const crypto = require('crypto');
 
-// Simula la Master Key del Vault. In un sistema reale, questa chiave 
-// è conservata in Hardware Security Modules (HSM).
-const ENCRYPTION_KEY = crypto.randomBytes(32); // Chiave a 256 bit per AES-256
-const IV_LENGTH = 16; // Initialization Vector per la crittografia AES
+// PCI-DSS: Simulazione di una chiave derivata sicura (PBKDF2/scrypt) o variabile d'ambiente.
+// In produzione verrebbe gestita tramite HSM (Hardware Security Module).
+const ENCRYPTION_KEY = process.env.MASTER_KEY 
+    ? Buffer.from(process.env.MASTER_KEY, 'hex') 
+    : crypto.scryptSync('master-password-super-sicura', 'salt-univoco', 32);
 
-// Simula il database del Vault (in-memory per il Proof of Concept).
-// Mappa i Token ai PAN CRITTOGRAFATI.
+const IV_LENGTH = 16;
 const tokenDatabase = new Map();
 
 /**
