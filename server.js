@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { tokenizePAN, detokenize } = require('./vault');
 const transactions = new Map(); // Store temporaneo per i pagamenti in corso
 const app = express();
+const otpAttempts = new Map();
 const PORT = 3000;
 
 // Middleware per permettere ad Express di leggere i dati in formato JSON
@@ -133,22 +134,51 @@ app.post('/api/verify-sca', (req, res) => {
         return res.status(404).json({ error: "Transazione non trovata" });
     }
 
-    // Simula che l'OTP corretto sia sempre '1234'
+    // 1. CHECK ANTI-BRUTEFORCE: Verifica se la transazione è già stata bloccata per troppi tentativi
+    let attempts = otpAttempts.get(transactionId) || 0;
+    if (attempts >= 3 || tx.status === 'locked') {
+        tx.status = 'locked'; // Congela definitivamente la transazione
+        console.log(`[3DS2] SECURITY ALERT: Tentativo di Brute-force su ${transactionId}. Transazione bloccata.`);
+        return res.status(429).json({
+            status: "locked",
+            error: "Too Many Requests: superati i 3 tentativi consentiti. Transazione bloccata cautelativamente."
+        });
+    }
+
+    // 2. VERIFICA OTP (Simula che l'OTP corretto sia sempre '1234')
     if (otp === '1234') {
+        // Autenticazione riuscita: puliamo il contatore dei tentativi falliti
+        otpAttempts.delete(transactionId);
         tx.status = 'completed';
+        
         console.log(`[3DS2] Challenge superata per ${transactionId}. Pagamento completato.`);
         
         // Qui nella realtà chiameremmo il Modulo 1 detokenize() per mandare i dati alla banca
-        res.status(200).json({
+        return res.status(200).json({
             status: "success",
             message: "SCA completata. Pagamento autorizzato."
         });
     } else {
+        // Autenticazione fallita: incrementiamo il contatore degli errori in memoria
+        attempts += 1;
+        otpAttempts.set(transactionId, attempts);
+
+        // Se l'utente ha appena commesso il 3° errore, scatta il blocco immediato
+        if (attempts >= 3) {
+            tx.status = 'locked';
+            console.log(`[3DS2] SCA Fallita per ${transactionId}. Terzo errore: transazione bloccata.`);
+            return res.status(429).json({
+                status: "locked",
+                error: "Too Many Requests: terzo tentativo errato. Transazione bloccata cautelativamente."
+            });
+        }
+
+        // Errore 1 o 2: avvisiamo l'utente di quanti tentativi gli restano
         tx.status = 'failed';
-        console.log(`[3DS2] SCA Fallita per ${transactionId}. OTP errato.`);
-        res.status(401).json({
+        console.log(`[3DS2] SCA Fallita per ${transactionId}. OTP errato (${attempts}/3).`);
+        return res.status(401).json({
             status: "failed",
-            error: "Codice OTP errato. Transazione negata."
+            error: `Codice OTP errato. Tentativo ${attempts} di 3 consentiti.`
         });
     }
 });
